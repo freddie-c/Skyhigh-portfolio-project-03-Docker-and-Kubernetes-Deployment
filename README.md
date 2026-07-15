@@ -30,28 +30,28 @@ I took a two-service Flask application from bare Python on my laptop to a self-h
 
 ## Proof of Production
 
-![docker images showing both slim images](docker-images.png)
+<img width="678" height="70" alt="docker-images" src="https://github.com/user-attachments/assets/0ae71702-fa5b-41dd-b464-d91a72a39cf0" />
 *Both images built on python:3.11-slim — ~52MB of unique layers each, far under the "1GB means you didn't think about it" bar.*
 
-![Compose stack running with backend unpublished](compose-ps.png)
+<img width="675" height="100" alt="compose-ps" src="https://github.com/user-attachments/assets/80646125-74e4-49e3-b9e2-65b8e557464b" />
 *`docker compose ps`: frontend publishes 8080; the backend has no published port and reachable only on the internal Docker network.*
 
-![App served by a Docker container](browser-compose-request1.png) (browser-compose-request4.png)
+<img width="972" height="223" alt="browser-compose-request1" src="https://github.com/user-attachments/assets/2f38dbe6-4141-490d-a0ff-429891b2808f" />
+<img width="966" height="174" alt="browser-compose-request4" src="https://github.com/user-attachments/assets/345bdf2d-cb37-4b51-8798-10f8688742a3" />
 *The app under Compose — "Served by backend" shows a container ID, proving the frontend resolved the backend by Compose DNS. Screenshot will show request count 1 and 4 to show the count increments. no command — browser → http://localhost:8080*
 
-![All four pods Running and Ready](kubectl-get-pods.png)
+<img width="622" height="89" alt="kubectl-get-pods" src="https://github.com/user-attachments/assets/914cd6ca-f43b-47fc-bc0a-bad2fd653a54" />
 *One backend, three frontends, all 1/1 READY (readiness probes passing) with 0 restarts (liveness probes never had to act).*
 
-![Services: ClusterIP and NodePort](kubectl-get-svc.png)
+<img width="620" height="55" alt="kubectl-get-svc" src="https://github.com/user-attachments/assets/b5249521-741f-4ee9-b1f8-53d98b043f7b" />
 *Backend sealed as ClusterIP on 5001; frontend as NodePort 8080:30080.*
 
-![App served by a Kubernetes pod](browser-k8s.png)
+<img width="908" height="228" alt="browser-k8s" src="https://github.com/user-attachments/assets/9aa3ae0d-19c6-42d3-aa40-d844aef15fe3" />
 *The same image, now serving through the full K8s chain — the hostname is a pod name (`backend-749bf749dc-8wb9j`).*
 
-![Self-healing demo](docs/images/self-healing.png)
 *After deleting a frontend pod, the ReplicaSet created a replacement (same template hash, new name) in under a minute — no human intervention.*
 
-![ConfigMap and Secret values inside the container](printenv.png)
+<img width="834" height="61" alt="printenv" src="https://github.com/user-attachments/assets/11f9f587-3072-4b92-a264-47fb670e2e59" />
 *`kubectl exec ... printenv` proving `BACKEND_URL` and `API_KEY` arrive from the ConfigMap and Secret, not the image or manifest.*
 
 
