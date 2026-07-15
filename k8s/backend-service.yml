@@ -1,0 +1,12 @@
+apiVersion: v1                      # Kubernetes API version
+kind: Service                       # Kubernetes resource
+metadata:
+  name: backend                    # The name of this service
+  namespace: patchwork             # Must match the namespace of your Deployment so they can interact
+spec:
+  type: ClusterIP                  # Exposes the service on a cluster-internal IP. Other services in the cluster can reach it. 
+  selector:
+    app: patchwork-backend         # Label selector determines which Pods this service routes traffic to.  
+  ports:
+    - port: 5001                  # The internal port that the service itself listens on inside the cluster network
+      targetPort: 5001            # The actual port that the application/container inside the backend Pod is listening on

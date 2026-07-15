@@ -1,0 +1,14 @@
+services:
+  backend:
+    image: freddiec1212/skyhigh-patchwork-backend:v1  # The Docker Hub image to pull and run for the backend application
+    container_name: patchwork-backend                 # Assign a custom name to the container 
+
+  frontend:
+    image: freddiec1212/skyhigh-patchwork-frontend:v1 # The Docker Hub image to pull and run for the frontend user interface
+    container_name: patchwork-frontend                # Assign a custom name to the container
+    ports:
+      - "8080:8080"
+    environment:
+      - BACKEND_URL=http://backend:5001               # Tells the frontend how to communicate with the backend using Docker's internal DNS network
+    depends_on:
+      - backend                                       # Ensures the backend container starts up BEFORE the frontend container starts

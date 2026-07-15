@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><title>Patchwork Labs in Association with Skyhigh Academy</title></head>
+<body style="font-family: sans-serif; background:#0a0e1a; color:#7fa8d4; text-align:center; padding-top:10vh;">
+  <h1>Patchwork Labs in Association with Skyhigh Academy</h1>
+  {% if error %}
+    <p style="color:#e06c75;">Backend unreachable: {{ error }}</p>
+  {% else %}
+    <p>Served by backend: <strong>{{ hostname }}</strong></p>
+    <p>Request count: <strong>{{ count }}</strong></p>
+  {% endif %}
+</body>
+</html>

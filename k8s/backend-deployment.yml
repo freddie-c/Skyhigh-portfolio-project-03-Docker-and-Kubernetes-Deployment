@@ -1,0 +1,40 @@
+apiVersion: apps/v1               # Kubernetes API version  
+kind: Deployment                  # Kubernetes resource
+metadata:
+  name: backend                   # The name of this deployment
+  namespace: patchwork            # Must match the namespace of your Service so they can interact 
+spec:
+  replicas: 1                     # Number of frontend Pods to run
+  selector:
+    matchLabels:
+      app: patchwork-backend      # Label selector determines which Pods this Deployment manages
+  template:
+    metadata:
+      labels:
+        app: patchwork-backend    # Labels applied to the Pods created by this Deployment
+    spec:
+      containers:
+        - name: backend
+          image: freddiec1212/skyhigh-patchwork-backend:v1      # The Docker image to pull and run
+          ports:
+            - containerPort: 5001        # The port the container application listens on internally
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health               # The app's health check endpoint
+              port: 5001
+            initialDelaySeconds: 3        # Wait 3 seconds after starting before checking
+            periodSeconds: 5              # Re-check every 5 seconds
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            initialDelaySeconds: 10      # Wait 10 seconds after starting before checking          
+            periodSeconds: 10               # Re-check every 10 seconds
+            failureThreshold: 3           # Must fail 3 consecutive times before restarting the Pod

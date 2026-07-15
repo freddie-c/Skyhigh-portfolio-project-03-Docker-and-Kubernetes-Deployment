@@ -1,0 +1,13 @@
+apiVersion: v1                   # Kubernetes API version
+kind: Service
+metadata:
+  name: frontend
+  namespace: patchwork
+spec:
+  type: NodePort                # Exposes the service outside the cluster on a static port on each Node's IP.
+  selector:
+    app: patchwork-frontend     # Label selector determines which Pods this service routes traffic to.
+  ports:
+    - port: 8080                # The port that the service itself listens on inside the cluster
+      targetPort: 8080          # The port on the Pod that the service should forward traffic to
+      nodePort: 30080           # The specific port opened on all Kubernetes nodes to allow external traffic in.
