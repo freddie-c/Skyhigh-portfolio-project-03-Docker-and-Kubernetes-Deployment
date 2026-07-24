@@ -2,11 +2,11 @@
 
 ## Project Description
 
-I took a two-service Flask application from bare Python on my laptop to a self-healing Kubernetes deployment: containerized both services with hardened Dockerfiles, verified them locally with Docker Compose, published the images to Docker Hub, and deployed them to a kind cluster with health probes, externalized configuration, and demonstrated automatic pod recovery. 
+I took a two-service Flask application from bare Python on my laptop to a self-healing Kubernetes deployment: containerized both services with hardened Dockerfiles, verified them locally with Docker Compose, published the images to Docker Hub, and deployed them to a kind cluster with health probes, externalized configuration, and demonstrated automatic pod recovery. Image builds and tests are automated with a GitHub Actions pipeline that runs on every push and pull request.
 
 **The scenario:** A startup is running everything on a single EC2 instance. They need horizontal scaling, automatic recovery, and zero-downtime deployments, and this project is that migration in miniature. 
 
-**Built with:** Python/Flask · Docker · Docker Compose · Docker Hub · Kubernetes (kind) · ConfigMaps & Secrets
+**Built with:** Python/Flask · Docker · Docker Compose · Docker Hub · Kubernetes (kind) · ConfigMaps & Secrets · GitHub Actions
 
 
 ---
@@ -23,6 +23,7 @@ I took a two-service Flask application from bare Python on my laptop to a self-h
 - Diagnose deployment drift using ReplicaSet template hashes ("the hash didn't move" = your change never reached the cluster)
 - Recover from real failures: port squatters, stale kubectl contexts, unsaved manifests, and piecemeal applies
 - Demonstrate self-healing by deleting a pod and watching the ReplicaSet replace it in under a minute with zero downtime
+- Automated testing and image publishing with a matrix-based GitHub Actions pipeline gated on passing tests
 
 
 ---
@@ -30,28 +31,35 @@ I took a two-service Flask application from bare Python on my laptop to a self-h
 
 ## Proof of Production
 
-![docker images showing both slim images](docker-images.png)
+<img width="678" height="70" alt="docker-images" src="https://github.com/user-attachments/assets/0ae71702-fa5b-41dd-b464-d91a72a39cf0" />
+
 *Both images built on python:3.11-slim — ~52MB of unique layers each, far under the "1GB means you didn't think about it" bar.*
 
-![Compose stack running with backend unpublished](compose-ps.png)
+<img width="675" height="100" alt="compose-ps" src="https://github.com/user-attachments/assets/80646125-74e4-49e3-b9e2-65b8e557464b" />
+
 *`docker compose ps`: frontend publishes 8080; the backend has no published port and reachable only on the internal Docker network.*
 
-![App served by a Docker container](browser-compose-request1.png) (browser-compose-request4.png)
+<img width="972" height="223" alt="browser-compose-request1" src="https://github.com/user-attachments/assets/2f38dbe6-4141-490d-a0ff-429891b2808f" />
+<img width="966" height="174" alt="browser-compose-request4" src="https://github.com/user-attachments/assets/345bdf2d-cb37-4b51-8798-10f8688742a3" />
+
 *The app under Compose — "Served by backend" shows a container ID, proving the frontend resolved the backend by Compose DNS. Screenshot will show request count 1 and 4 to show the count increments. no command — browser → http://localhost:8080*
 
-![All four pods Running and Ready](kubectl-get-pods.png)
+<img width="622" height="89" alt="kubectl-get-pods" src="https://github.com/user-attachments/assets/914cd6ca-f43b-47fc-bc0a-bad2fd653a54" />
+
 *One backend, three frontends, all 1/1 READY (readiness probes passing) with 0 restarts (liveness probes never had to act).*
 
-![Services: ClusterIP and NodePort](kubectl-get-svc.png)
+<img width="620" height="55" alt="kubectl-get-svc" src="https://github.com/user-attachments/assets/b5249521-741f-4ee9-b1f8-53d98b043f7b" />
+
 *Backend sealed as ClusterIP on 5001; frontend as NodePort 8080:30080.*
 
-![App served by a Kubernetes pod](browser-k8s.png)
+<img width="908" height="228" alt="browser-k8s" src="https://github.com/user-attachments/assets/9aa3ae0d-19c6-42d3-aa40-d844aef15fe3" />
+
 *The same image, now serving through the full K8s chain — the hostname is a pod name (`backend-749bf749dc-8wb9j`).*
 
-![Self-healing demo](docs/images/self-healing.png)
 *After deleting a frontend pod, the ReplicaSet created a replacement (same template hash, new name) in under a minute — no human intervention.*
 
-![ConfigMap and Secret values inside the container](printenv.png)
+<img width="834" height="61" alt="printenv" src="https://github.com/user-attachments/assets/11f9f587-3072-4b92-a264-47fb670e2e59" />
+
 *`kubectl exec ... printenv` proving `BACKEND_URL` and `API_KEY` arrive from the ConfigMap and Secret, not the image or manifest.*
 
 
@@ -106,6 +114,21 @@ flowchart LR
 
 
 ---
+ 
+## CI/CD Pipeline
+ 
+A single workflow at `.github/workflows/ci.yml` covers both services. It runs on every push to `main`, on every pull request, and on demand via `workflow_dispatch`.
+ 
+**Stage 1 — test.** A matrix over `[backend, frontend]` fans the job out to two parallel runners. Each installs that service's `requirements.txt` plus a `requirements-dev.txt` holding only `pytest`, then runs smoke tests against the `/health` endpoint — the same endpoint the Kubernetes readiness and liveness probes hit. `fail-fast: false` keeps both copies running so a failure in one service still reports the state of the other.
+ 
+**Stage 2 — build and push.** Gated behind `needs: test`, so nothing publishes unless both services pass, and restricted with `if: github.ref == 'refs/heads/main'` so pull requests are tested but never publish. The same matrix builds each service from its own directory and pushes to Docker Hub with two tags: a human-readable version tag and the immutable commit SHA. The SHA tag means every image traces back to the exact commit that produced it, and rollback targets a specific build rather than a moving `latest`.
+ 
+**Image tags:** the pipeline publishes `:v2` and `:<commit-sha>`. The committed Kubernetes manifests still pin `:v1` deliberately, so `kubectl apply -f k8s/` reproduces the documented deployment exactly. Moving to a pipeline-built image is a `kubectl set image` away, which is the rolling-update demo in Future Improvements.
+ 
+**Where the pipeline stops.** It ends at the registry. Deployment to the kind cluster stays manual, because a GitHub-hosted runner has no network path to a cluster running in Docker on my laptop — that is a network reality, not a configuration gap. In production it closes one of two ways: a self-hosted runner with cluster access, or a GitOps pull model where Argo CD or Flux watches the repository from *inside* the cluster and pulls changes, inverting the direction so no inbound access is required.
+
+
+---
 
 
 ## Prerequisites
@@ -136,7 +159,7 @@ No AWS account required — this project runs entirely locally.
 | Docker Hub | Public image registry | kind pulls public images with zero auth config; public repos double as portfolio artifacts (ECR is the production answer) |
 | kind | Local Kubernetes | Free, disposable, runs the real K8s API as Docker containers |
 | ConfigMap / Secret | Externalized configuration | Config lives in the environment, not the image or manifest — the 12-factor pattern |
-
+| GitHub Actions | CI/CD | Managed runners with no CI server to operate (the contrast with Jenkins); native to where the code already lives, so build status is visible on every commit and pull request |
 
 ---
 
@@ -154,7 +177,10 @@ No AWS account required — this project runs entirely locally.
 | Secret mounted via `secretKeyRef`, value is deliberately fake | Demonstrates the pattern; the committed manifest contains no real credential. Base64 is not encryption — in production I'd source from AWS Secrets Manager |
 | Resource requests and limits on every container | A runaway container gets throttled (CPU) or killed (memory) instead of starving the node |
 | `.gitignore` (`venv/`, `.env`, `.DS_Store`, `.vscode/`) created before `git init` | Secrets and junk never enter git history, where removal requires rewriting history and rotating credentials |
-
+| Docker Hub **access token** stored in GitHub Secrets — never an account password, never in the workflow file | A leaked credential is revocable in isolation; the account itself stays intact. Secrets are encrypted at rest and redacted from Actions logs |
+| Every GitHub Action pinned to a major version (`@v4`, `@v5`, `@v6`) | Supply-chain injection through a compromised action release running with repository access |
+| `permissions: contents: read` declared on the publishing job | Drops the default `GITHUB_TOKEN` scope to read-only, so a compromised action can't push commits or tamper with releases |
+| Test tooling isolated in `requirements-dev.txt`, installed only by CI | `requirements.txt` is copied into the image, so keeping pytest out of it means no test runner ships to production |
 
 ---
 
@@ -193,6 +219,20 @@ docker compose down
 ```
 
 > macOS note: the backend uses port 5001 because AirPlay Receiver squats on 5000 (see Challenges).
+
+### Run the tests locally
+ 
+The pipeline runs exactly these commands, so green here means green on the runner.
+ 
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+ 
+cd ../frontend
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+```
 
 ### Run on Kubernetes (kind)
 
@@ -290,6 +330,16 @@ kubectl delete pod <frontend pod name goes here> -n patchwork
 - **Root cause:** Two copies of the same app answering on the same port means you can "verify" Kubernetes while actually talking to Compose.
 - **Solution:** `docker compose down` before port-forwarding, only one running copy at a time when testing. The hostname on the page is the fingerprint: container hex ID = Compose; pod name = Kubernetes.
 
+**9. CI steps failed with `No such file or directory: requirements.txt`**
+ 
+- **Problem:** The first pipeline draft died immediately on the dependency install, even though `requirements.txt` existed.
+- **Root cause:** A GitHub Actions runner starts each job in a fresh VM at the **repository root**. This repo keeps each service in its own subdirectory, so a bare `pip install -r requirements.txt` looks for a file that isn't there.
+- **Solution:** Added `working-directory: ./${{ matrix.service }}` to every Python step, so the matrix copy operates inside its own service folder — the same boundary the Dockerfiles already use as their build context.
+**10. `pytest` failed with `ModuleNotFoundError: No module named 'app'`**
+ 
+- **Problem:** Tests in `backend/tests/test_health.py` couldn't import the Flask app one directory above them, locally and in CI.
+- **Root cause:** pytest determines its import root by walking up from the test file looking for `__init__.py`. With none present, it stopped at `tests/` and put only that directory on `sys.path` — so `app.py` in the service root was invisible. Bare `pytest` does not add the working directory to `sys.path` the way `python -m pytest` does.
+- **Solution:** Added an empty `conftest.py` to each service root. pytest treats that directory as the rootdir and places it on the import path. Zero bytes, one structural job — and it keeps `pytest` behaving identically on the runner and on my laptop.
 
 ---
 
@@ -337,23 +387,34 @@ Resurrection from nothing is ~90 seconds: `kubectl create namespace patchwork &&
 
 ```
 skyhigh-patchwork-lab/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                # CI/CD pipeline — matrix over both services
 ├── backend/
 │   ├── app.py                    # Flask JSON API: /api/count (hostname + counter), /health
-│   ├── requirements.txt          # flask==3.0.3 (pinned)
+│   ├── conftest.py               # empty — makes backend/ the pytest import root
+│   ├── requirements.txt          # flask==3.0.3 (pinned) — copied into the image
+│   ├── requirements-dev.txt      # pytest only — CI installs it, the image never sees it
 │   ├── Dockerfile                # python:3.11-slim, non-root, layer-cached, EXPOSE 5001
-│   └── .dockerignore             # keeps venv/, .git/, .env out of the build context
+│   ├── .dockerignore             # keeps venv/, .git/, .env out of the build context
+│   └── tests/
+│       └── test_health.py        # smoke tests on /health and /api/count
 ├── frontend/
 │   ├── app.py                    # Flask HTML frontend; calls BACKEND_URL server-side, degrades gracefully
+│   ├── conftest.py               # empty — same import-root fix
 │   ├── templates/
 │   │   └── index.html            # Jinja2 template (auto-escaped output)
 │   ├── requirements.txt          # flask==3.0.3, requests==2.32.3
+│   ├── requirements-dev.txt      # pytest only
 │   ├── Dockerfile                # same pattern, EXPOSE 8080, copies templates/
-│   └── .dockerignore
+│   ├── .dockerignore
+│   └── tests/
+│       └── test_health.py        # smoke test on /health, plus graceful-degradation check
 ├── k8s/
 │   ├── app-config.yml            # ConfigMap: BACKEND_URL=http://backend:5001
 │   ├── app-secret.yml            # Secret: fake API_KEY (committed intentionally — demo pattern only)
 │   ├── backend-deployment.yml    # 1 replica, probes on /health:5001, resource limits
-│   ├── backend-service.yml       # ClusterIP :5001 — internal only, this line IS the DNS name "backend"
+│   ├── backend-service.yml       # ClusterIP :5001 — internal only; this line IS the DNS name "backend"
 │   ├── frontend-deployment.yml   # 3 replicas, probes on /health:8080, env via valueFrom
 │   └── frontend-service.yml      # NodePort 8080:30080
 ├── docker-compose.yml            # local two-service stack; backend unpublished
@@ -367,11 +428,13 @@ skyhigh-patchwork-lab/
 
 ## Future Improvements
 
-1. **Versioned rolling update (`v1` → `v2`)** — visible app change, rebuild, push, `kubectl set image`, watch the zero-downtime roll, then `kubectl rollout undo`.
-2. **CI/CD with GitHub Actions** — build, tag, and push images on every commit using the OIDC pattern I've used for AWS auth (no stored keys).
-3. **Gunicorn instead of Flask's dev server** — production WSGI with proper worker management and clean SIGTERM handling (kills the cosmetic `Error` exit status too).
-4. **Redis for the counter** — the in-memory counter resets on every pod restart and diverges across replicas; external state is the fix.
-5. **Deploy to Amazon EKS with ECR** — managed control plane, IAM-integrated private registry, and a real LoadBalancer Service replacing the NodePort/port-forward workaround.
-6. **Helm chart** — template the manifests so replica counts, image tags, and ports become values instead of hardcoded YAML.
-7. **Ingress controller** — path-based routing and a single entry point instead of NodePort.
-8. **Monitoring** — Prometheus + Grafana for the metrics that requests/limits are currently set by guesswork.
+1. **Versioned rolling update (`v1` → `v2`)** — The pipeline already publishes `:v2`, so this is now a `kubectl set image` away: watch the zero downtime roll, then `kubectl rollout undo`.
+2. **GitHub OIDC for cloud authentication** — When this moves to ECR/EKS, federate the runner into an IAM role instead of storing long-lived AWS keys, the same pattern used in my Terraform project.
+3. **Image vulnerability scanning in CI** — Add a Trivy or Grype scan step that fails the build on high-severity CVEs, before the image ever reaches the registry.
+4. **Argo CD for pull-based deployment** — Closes the CI/CD boundary described above by letting an in-cluster agent watch the repo, which works without any inbound network path to the cluster.
+5. **Gunicorn instead of Flask's dev server** — Production WSGI with proper worker management and clean SIGTERM handling (kills the cosmetic `Error` exit status too).
+6. **Redis for the counter** — The in-memory counter resets on every pod restart and diverges across replicas; external state is the fix.
+7. **Deploy to Amazon EKS with ECR** — Managed control plane, IAM-integrated private registry, and a real LoadBalancer Service replacing the NodePort/port-forward workaround.
+8. **Helm chart** — Template the manifests so replica counts, image tags, and ports become values instead of hardcoded YAML.
+9. **Ingress controller** — Path-based routing and a single entry point instead of NodePort.
+10. **Monitoring** — Prometheus + Grafana for the metrics that requests/limits are currently set by guesswork.
