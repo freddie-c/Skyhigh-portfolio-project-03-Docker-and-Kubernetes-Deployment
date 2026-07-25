@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Non-root user — container compromise ≠ root shell
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
