@@ -24,7 +24,8 @@ I took a two-service Flask application from bare Python on my laptop to a self-h
 - Recover from real failures: port squatters, stale kubectl contexts, unsaved manifests, and piecemeal applies
 - Demonstrate self-healing by deleting a pod and watching the ReplicaSet replace it in under a minute with zero downtime
 - Automated testing and image publishing with a matrix-based GitHub Actions pipeline gated on passing tests
-
+- Wrote tests at two levels: smoke tests that prove each service boots and answers, and a unit test that verifies behavior (the backend counter strictly increments) rather than mere liveness
+- Automated linting, testing, and image publishing with a matrix-based GitHub Actions pipeline gated on passing tests, and wired Dependabot to keep dependencies, actions, and base images current
 
 ---
 
@@ -120,6 +121,8 @@ flowchart LR
 A single workflow at `.github/workflows/ci.yml` covers both services. It runs on every push to `main`, on every pull request, and on demand via `workflow_dispatch`.
  
 **Stage 1 — lint and test.** A matrix over `[backend, frontend]` fans the job out to two parallel runners. Each installs that service's `requirements.txt` plus a `requirements-dev.txt` holding the dev tooling (`pytest`, `flake8`, `black`), then runs three checks in order: `black --check` verifies the code is formatted, `flake8` lints for style and error-class issues, and `pytest` runs smoke tests against the `/health` endpoint — the same endpoint the Kubernetes readiness and liveness probes hit. The checks are sequenced cheapest-first: formatting and lint read the code without executing it and fail in seconds, so a malformed change never reaches the slower test step. `fail-fast: false` keeps both copies running so a failure in one service still reports the state of the other.
+
+**Dependency automation.** Dependabot watches five surfaces on a weekly schedule: pip dependencies for each service, the pinned GitHub Actions themselves, and the Docker base image for each service. When any is behind — a newer Flask, a bumped action version, a fresher `python:3.11-slim`, or one with a known CVE — Dependabot opens a pull request with the upgrade. Crucially, each of those PRs runs through the full pipeline above before it can merge: lint, tests, and build all execute against the proposed bump. A green Dependabot PR is a tested, one-click patch; a red one is an upgrade caught breaking something before it ever reached `main`. Staying patched becomes low-risk because the pipeline verifies every change rather than trusting it blind.
  
 **Stage 2 — build and push.** Gated behind `needs: test`, so nothing publishes unless both services pass, and restricted with `if: github.ref == 'refs/heads/main'` so pull requests are tested but never publish. The same matrix builds each service from its own directory and pushes to Docker Hub with two tags: a human-readable version tag and the immutable commit SHA. The SHA tag means every image traces back to the exact commit that produced it, and rollback targets a specific build rather than a moving `latest`.
  
@@ -162,6 +165,7 @@ No AWS account required — this project runs entirely locally.
 | GitHub Actions | CI/CD | Managed runners with no CI server to operate (the contrast with Jenkins); native to where the code already lives, so build status is visible on every commit and pull request |
 | flake8 | Linting | Catches style violations and error-class issues (undefined names, unused imports) before the test step runs — the cheapest gate in the pipeline |
 | black | Code formatting | Deterministic, opinionated formatting so style is never a review argument; CI runs `black --check` so unformatted code can't merge |
+| Dependabot | Dependency automation | Opens tested PRs to keep pip deps, action pins, and base images current — pairs with CI so patching is low-risk |
 
 ---
 
@@ -184,6 +188,7 @@ No AWS account required — this project runs entirely locally.
 | `permissions: contents: read` declared on the publishing job | Drops the default `GITHUB_TOKEN` scope to read-only, so a compromised action can't push commits or tamper with releases |
 | Test tooling isolated in `requirements-dev.txt`, installed only by CI | `requirements.txt` is copied into the image, so keeping pytest out of it means no test runner ships to production |
 | `flake8` runs on every push and pull request | Undefined names and unused imports (dead code that can hide bugs) are caught before merge, not in production |
+| Dependabot watches pip, GitHub Actions, and Docker base images; every update PR runs the full pipeline | Known-CVE dependencies surface as PRs instead of sitting silently in a lockfile, and each patch arrives already tested rather than applied blind or never |
 
 ---
 
@@ -391,8 +396,9 @@ Resurrection from nothing is ~90 seconds: `kubectl create namespace patchwork &&
 ```
 skyhigh-patchwork-lab/
 ├── .github/
-│   └── workflows/
-│       └── ci.yml                # CI/CD pipeline — matrix over both services
+│   ├── workflows/
+│   │   └── ci.yml                # CI/CD pipeline — matrix over both services
+│   └── dependabot.yml            # weekly update PRs: pip (both services), actions, docker
 ├── setup.cfg                     # flake8 config — line length, black reconciliation
 ├── backend/
 │   ├── app.py                    # Flask JSON API: /api/count (hostname + counter), /health
@@ -402,7 +408,8 @@ skyhigh-patchwork-lab/
 │   ├── Dockerfile                # python:3.11-slim, non-root, layer-cached, EXPOSE 5001
 │   ├── .dockerignore             # keeps venv/, .git/, .env out of the build context
 │   └── tests/
-│       └── test_health.py        # smoke tests on /health and /api/count
+│       ├── test_health.py        # smoke tests — app boots, /health answers 200
+│       └── test_count.py         # unit test — /api/count strictly increments
 ├── frontend/
 │   ├── app.py                    # Flask HTML frontend; calls BACKEND_URL server-side, degrades gracefully
 │   ├── conftest.py               # empty — same import-root fix
