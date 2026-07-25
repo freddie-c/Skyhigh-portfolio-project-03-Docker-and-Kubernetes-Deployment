@@ -1,2 +1,2 @@
 pytest==8.3.3           # Test-only dependencies.
-flake8==7.1.1           # Linting-only dependencies.
+flake8==7.3.0           # Linting-only dependencies.
