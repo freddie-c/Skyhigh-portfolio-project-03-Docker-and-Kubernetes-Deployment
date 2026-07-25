@@ -119,7 +119,7 @@ flowchart LR
  
 A single workflow at `.github/workflows/ci.yml` covers both services. It runs on every push to `main`, on every pull request, and on demand via `workflow_dispatch`.
  
-**Stage 1 — test.** A matrix over `[backend, frontend]` fans the job out to two parallel runners. Each installs that service's `requirements.txt` plus a `requirements-dev.txt` holding only `pytest`, then runs smoke tests against the `/health` endpoint — the same endpoint the Kubernetes readiness and liveness probes hit. `fail-fast: false` keeps both copies running so a failure in one service still reports the state of the other.
+**Stage 1 — lint and test.** A matrix over `[backend, frontend]` fans the job out to two parallel runners. Each installs that service's `requirements.txt` plus a `requirements-dev.txt` holding the dev tooling (`pytest`, `flake8`, `black`), then runs three checks in order: `black --check` verifies the code is formatted, `flake8` lints for style and error-class issues, and `pytest` runs smoke tests against the `/health` endpoint — the same endpoint the Kubernetes readiness and liveness probes hit. The checks are sequenced cheapest-first: formatting and lint read the code without executing it and fail in seconds, so a malformed change never reaches the slower test step. `fail-fast: false` keeps both copies running so a failure in one service still reports the state of the other.
  
 **Stage 2 — build and push.** Gated behind `needs: test`, so nothing publishes unless both services pass, and restricted with `if: github.ref == 'refs/heads/main'` so pull requests are tested but never publish. The same matrix builds each service from its own directory and pushes to Docker Hub with two tags: a human-readable version tag and the immutable commit SHA. The SHA tag means every image traces back to the exact commit that produced it, and rollback targets a specific build rather than a moving `latest`.
  
@@ -160,6 +160,8 @@ No AWS account required — this project runs entirely locally.
 | kind | Local Kubernetes | Free, disposable, runs the real K8s API as Docker containers |
 | ConfigMap / Secret | Externalized configuration | Config lives in the environment, not the image or manifest — the 12-factor pattern |
 | GitHub Actions | CI/CD | Managed runners with no CI server to operate (the contrast with Jenkins); native to where the code already lives, so build status is visible on every commit and pull request |
+| flake8 | Linting | Catches style violations and error-class issues (undefined names, unused imports) before the test step runs — the cheapest gate in the pipeline |
+| black | Code formatting | Deterministic, opinionated formatting so style is never a review argument; CI runs `black --check` so unformatted code can't merge |
 
 ---
 
@@ -181,6 +183,7 @@ No AWS account required — this project runs entirely locally.
 | Every GitHub Action pinned to a major version (`@v4`, `@v5`, `@v6`) | Supply-chain injection through a compromised action release running with repository access |
 | `permissions: contents: read` declared on the publishing job | Drops the default `GITHUB_TOKEN` scope to read-only, so a compromised action can't push commits or tamper with releases |
 | Test tooling isolated in `requirements-dev.txt`, installed only by CI | `requirements.txt` is copied into the image, so keeping pytest out of it means no test runner ships to production |
+| `flake8` runs on every push and pull request | Undefined names and unused imports (dead code that can hide bugs) are caught before merge, not in production |
 
 ---
 
@@ -390,11 +393,12 @@ skyhigh-patchwork-lab/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                # CI/CD pipeline — matrix over both services
+├── setup.cfg                     # flake8 config — line length, black reconciliation
 ├── backend/
 │   ├── app.py                    # Flask JSON API: /api/count (hostname + counter), /health
 │   ├── conftest.py               # empty — makes backend/ the pytest import root
 │   ├── requirements.txt          # flask==3.0.3 (pinned) — copied into the image
-│   ├── requirements-dev.txt      # pytest only — CI installs it, the image never sees it
+│   ├── requirements-dev.txt      # pytest, flake8, black — CI installs these, the image never sees them
 │   ├── Dockerfile                # python:3.11-slim, non-root, layer-cached, EXPOSE 5001
 │   ├── .dockerignore             # keeps venv/, .git/, .env out of the build context
 │   └── tests/
@@ -405,7 +409,7 @@ skyhigh-patchwork-lab/
 │   ├── templates/
 │   │   └── index.html            # Jinja2 template (auto-escaped output)
 │   ├── requirements.txt          # flask==3.0.3, requests==2.32.3
-│   ├── requirements-dev.txt      # pytest only
+│   ├── requirements-dev.txt      # pytest, flake8, black
 │   ├── Dockerfile                # same pattern, EXPOSE 8080, copies templates/
 │   ├── .dockerignore
 │   └── tests/
