@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # 1. Python deps — but you have TWO requirements files in TWO folders
+  - package-ecosystem: "pip"
+    directory: "/backend"        # watches backend/requirements*.txt
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "pip"
+    directory: "/frontend"       # watches frontend/requirements*.txt
+    schedule:
+      interval: "weekly"
+
+  # 2. Your GitHub Actions themselves — the @v4/@v5/@v6 pins
+  - package-ecosystem: "github-actions"
+    directory: "/"               # always root for actions
+    schedule:
+      interval: "weekly"
+
+  # 3. Your Docker base images — the python:3.11-slim in each Dockerfile
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
